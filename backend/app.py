@@ -22,13 +22,22 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=backend_dir / ".env")
 load_dotenv(dotenv_path=root_dir / ".env")
 
-from src.loader import load_pdf
-from src.splitter import split_documents
-from src.embeddings import get_embeddings
-from src.vector_db import create_vector_store
-from src.hybrid_search import HybridRetriever
-from src.reranker import rerank_documents
-from src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt
+try:
+    from backend.src.loader import load_pdf
+    from backend.src.splitter import split_documents
+    from backend.src.embeddings import get_embeddings
+    from backend.src.vector_db import create_vector_store
+    from backend.src.hybrid_search import HybridRetriever
+    from backend.src.reranker import rerank_documents
+    from backend.src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt
+except ImportError:
+    from src.loader import load_pdf  # type: ignore
+    from src.splitter import split_documents  # type: ignore
+    from src.embeddings import get_embeddings  # type: ignore
+    from src.vector_db import create_vector_store  # type: ignore
+    from src.hybrid_search import HybridRetriever  # type: ignore
+    from src.reranker import rerank_documents  # type: ignore
+    from src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt  # type: ignore
 
 # Configure logging
 logging.basicConfig(

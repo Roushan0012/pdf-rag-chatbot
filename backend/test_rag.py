@@ -7,12 +7,20 @@ from langchain_core.documents import Document
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, backend_dir)
 
-from src.splitter import split_documents
-from src.embeddings import get_embeddings
-from src.vector_db import create_vector_store
-from src.hybrid_search import HybridRetriever
-from src.reranker import rerank_documents
-from src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt
+try:
+    from backend.src.splitter import split_documents
+    from backend.src.embeddings import get_embeddings
+    from backend.src.vector_db import create_vector_store
+    from backend.src.hybrid_search import HybridRetriever
+    from backend.src.reranker import rerank_documents
+    from backend.src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt
+except ImportError:
+    from src.splitter import split_documents  # type: ignore
+    from src.embeddings import get_embeddings  # type: ignore
+    from src.vector_db import create_vector_store  # type: ignore
+    from src.hybrid_search import HybridRetriever  # type: ignore
+    from src.reranker import rerank_documents  # type: ignore
+    from src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt  # type: ignore
 
 load_dotenv()
 
