@@ -2,13 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for build tools and curl
+# Set memory-saving environment variables for PyTorch and Transformers
+ENV PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    TOKENIZERS_PARALLELISM=false \
+    PORT=10000
+
+# Install build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy backend requirements and install dependencies with CPU-only PyTorch for fast builds
+# Install CPU-only PyTorch (much smaller memory footprint) and backend requirements
 COPY backend/requirements.txt requirements.txt
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt gunicorn
@@ -17,9 +24,7 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 COPY backend /app/backend
 COPY app.py /app/app.py
 
-ENV PORT=5001
-ENV PYTHONUNBUFFERED=1
+EXPOSE 10000
 
-EXPOSE 5001
-
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "2", "--timeout", "120", "backend.app:app"]
+# Run with 1 worker to stay well under Render 512MB RAM free limit, dynamic PORT binding
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 120 backend.app:app"]

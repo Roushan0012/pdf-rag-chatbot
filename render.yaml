@@ -1,11 +1,19 @@
 services:
   - type: web
     name: pdf-rag-backend
-    env: python
-    buildCommand: "pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && pip install -r backend/requirements.txt gunicorn"
-    startCommand: "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 backend.app:app"
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
     envVars:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
         value: "openai/gpt-oss-120b"
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
+      - key: TOKENIZERS_PARALLELISM
+        value: "false"
