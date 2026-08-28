@@ -1,43 +1,21 @@
-from src.embeddings import get_embeddings
-from src.vector_db import load_vector_store
-from src.rag_chain import get_llm
-
-embeddings = get_embeddings()
-
-db = load_vector_store(embeddings)
-
-retriever = db.as_retriever(
-    search_kwargs={"k": 3}
-)
-
-llm = get_llm()
-
-print("RAG Chatbot Ready!")
-print("Type exit to quit.\n")
-
-while True:
-    question = input("You: ")
-
-    if question.lower() == "exit":
-        break
-
-    docs = retriever.invoke(question)
-
-    context = "\n\n".join(
-        [doc.page_content for doc in docs]
-    )
-
-    prompt = f"""
-Answer the question only from the given context.
-
-Context:
-{context}
-
-Question:
-{question}
 """
+Root WSGI Entrypoint for Deployment (Vercel, Render, Gunicorn, etc.)
+Imports and exposes the production Flask application from backend.app.
+"""
+import sys
+from pathlib import Path
 
-    response = llm.invoke(prompt)
+# Ensure root and backend directories are in sys.path
+root_dir = Path(__file__).resolve().parent
+backend_dir = root_dir / "backend"
 
-    print("\nBot:", response.content)
-    print()
+for p in [str(root_dir), str(backend_dir)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from backend.app import app
+
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host="0.0.0.0", port=port, debug=True)
