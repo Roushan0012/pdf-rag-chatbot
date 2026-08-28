@@ -1,12 +1,3 @@
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
+from backend.src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt
 
-load_dotenv()
-
-def get_llm():
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0
-    )
-
-    return llm
+__all__ = ["get_llm", "format_context_from_parents", "build_rag_prompt"]

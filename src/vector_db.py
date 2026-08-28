@@ -1,8 +1,1 @@
-from langchain_community.vectorstores import FAISS
-
-def create_vector_store(chunks, embeddings):
-    db = FAISS.from_documents(
-        chunks,
-        embeddings
-    )
-    return db
+from backend.src.vector_db import create_vector_store, save_vector_store, load_vector_store
