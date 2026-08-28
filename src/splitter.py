@@ -1,1 +1,0 @@
-from backend.src.splitter import split_documents

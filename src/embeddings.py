@@ -1,1 +1,0 @@
-from backend.src.embeddings import get_embeddings

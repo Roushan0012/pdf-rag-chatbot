@@ -15,6 +15,8 @@ for p in [str(root_dir), str(backend_dir)]:
 
 from backend.app import app
 
+__all__ = ["app"]
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5001))
