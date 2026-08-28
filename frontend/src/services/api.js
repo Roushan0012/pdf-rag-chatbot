@@ -1,20 +1,73 @@
-// Uses VITE_API_URL environment variable if set, otherwise defaults to local Vite proxy '/api'
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+/**
+ * Get active API Base URL from localStorage, env var, or local proxy.
+ */
+export function getApiBase() {
+  const customUrl = localStorage.getItem('custom_backend_url');
+  if (customUrl && customUrl.trim()) {
+    let clean = customUrl.trim().replace(/\/+$/, '');
+    if (!clean.endsWith('/api') && !clean.includes('/api/')) {
+      clean = `${clean}/api`;
+    }
+    return clean;
+  }
+  return import.meta.env.VITE_API_URL || '/api';
+}
+
+export function setApiBase(url) {
+  if (!url || !url.trim()) {
+    localStorage.removeItem('custom_backend_url');
+  } else {
+    localStorage.setItem('custom_backend_url', url.trim());
+  }
+}
+
+/**
+ * Check backend health status.
+ */
+export async function checkBackendHealth() {
+  const apiBase = getApiBase();
+  try {
+    const res = await fetch(`${apiBase}/health`, { method: 'GET' });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return { ok: false, error: 'Server returned non-JSON response (HTML fallback).' };
+    }
+    const data = await res.json();
+    return { ok: res.ok, data };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Cannot reach backend server.' };
+  }
+}
 
 /**
  * Upload PDF to backend for parent-child chunking and hybrid indexing.
  */
 export async function uploadPDF(file, sessionId = null) {
+  const apiBase = getApiBase();
   const formData = new FormData();
   formData.append('file', file);
   if (sessionId) {
     formData.append('sessionId', sessionId);
   }
 
-  const response = await fetch(`${API_BASE}/upload`, {
-    method: 'POST',
-    body: formData,
-  });
+  let response;
+  try {
+    response = await fetch(`${apiBase}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (netErr) {
+    throw new Error(
+      `Cannot connect to backend at "${apiBase}". If you are using Vercel, please provide your deployed Backend URL in Connection Settings.`
+    );
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `Backend API not found at "${apiBase}" (received HTML instead of API response). Please ensure your Python Flask backend is running and connected.`
+    );
+  }
 
   const data = await response.json();
   if (!response.ok) {
@@ -36,8 +89,9 @@ export async function streamChatMessage({
   onError,
   signal
 }) {
+  const apiBase = getApiBase();
   try {
-    const response = await fetch(`${API_BASE}/chat`, {
+    const response = await fetch(`${apiBase}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -51,8 +105,13 @@ export async function streamChatMessage({
     });
 
     if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `Server returned error ${response.status}`);
+      const contentType = response.headers.get('content-type') || '';
+      let errMsg = `Server returned error ${response.status}`;
+      if (contentType.includes('application/json')) {
+        const errData = await response.json().catch(() => ({}));
+        errMsg = errData.error || errMsg;
+      }
+      throw new Error(errMsg);
     }
 
     const reader = response.body.getReader();
@@ -107,7 +166,8 @@ export async function streamChatMessage({
  * Fetch status of an existing session.
  */
 export async function getSessionStatus(sessionId) {
-  const res = await fetch(`${API_BASE}/session/${sessionId}`);
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/session/${sessionId}`);
   if (!res.ok) throw new Error('Session not found');
   return res.json();
 }
@@ -116,7 +176,8 @@ export async function getSessionStatus(sessionId) {
  * Clear memory for a session.
  */
 export async function resetSession(sessionId) {
-  const res = await fetch(`${API_BASE}/session/${sessionId}`, {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/session/${sessionId}`, {
     method: 'DELETE',
   });
   return res.json();

@@ -11,7 +11,8 @@ import {
   Loader2,
   Sparkles,
   Zap,
-  BookOpen
+  BookOpen,
+  Server
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -21,7 +22,8 @@ export default function Sidebar({
   onClearSession,
   uploadError,
   isOpen,
-  onClose
+  onClose,
+  onOpenSettings
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef(null);
@@ -149,9 +151,21 @@ export default function Sidebar({
           </div>
 
           {uploadError && (
-            <div className="mt-2 p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-start gap-2">
-              <AlertCircle size={15} className="shrink-0 mt-0.5" />
-              <span>{uploadError}</span>
+            <div className="mt-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-2 animate-fade-in">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-400" />
+                <span className="leading-snug">{uploadError}</span>
+              </div>
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="w-full py-1.5 px-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[11px] font-semibold transition flex items-center justify-center gap-1.5"
+                >
+                  <Server size={12} />
+                  Configure Backend URL
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -3,7 +3,8 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import ChatWindow from './components/ChatWindow';
 import ChatInput from './components/ChatInput';
-import { uploadPDF, streamChatMessage, resetSession } from './services/api';
+import ConnectionModal from './components/ConnectionModal';
+import { uploadPDF, streamChatMessage, resetSession, checkBackendHealth } from './services/api';
 
 function generateSessionId() {
   return 'sess_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
@@ -28,8 +29,22 @@ export default function App() {
   const [uploadError, setUploadError] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [backendConnected, setBackendConnected] = useState(true);
 
   const abortControllerRef = useRef(null);
+
+  // Verify backend connectivity
+  const verifyConnection = async () => {
+    const res = await checkBackendHealth();
+    setBackendConnected(res.ok);
+  };
+
+  useEffect(() => {
+    verifyConnection();
+    const interval = setInterval(verifyConnection, 30000); // check health every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   // Sync state to local storage
   useEffect(() => {
@@ -55,6 +70,7 @@ export default function App() {
 
     try {
       const res = await uploadPDF(file, sessionId);
+      setBackendConnected(true);
       setSessionId(res.sessionId);
       setDocInfo({
         filename: res.filename,
@@ -194,6 +210,7 @@ export default function App() {
         uploadError={uploadError}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {/* Backdrop overlay for mobile sidebar */}
@@ -211,6 +228,8 @@ export default function App() {
           activePdf={docInfo?.filename}
           messageCount={messages.length}
           onClearChat={handleClearChat}
+          backendConnected={backendConnected}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         <ChatWindow
@@ -227,6 +246,13 @@ export default function App() {
           activePdf={docInfo?.filename}
         />
       </div>
+
+      {/* Connection Modal */}
+      <ConnectionModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onConnectionChanged={verifyConnection}
+      />
     </div>
   );
 }
