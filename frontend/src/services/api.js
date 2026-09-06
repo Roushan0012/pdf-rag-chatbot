@@ -78,11 +78,44 @@ export async function uploadPDF(file, sessionId = null) {
 }
 
 /**
+ * Ingest bundled sample document for instant testing.
+ */
+export async function loadSamplePDF(sessionId = null) {
+  const apiBase = getApiBase();
+  let response;
+  try {
+    response = await fetch(`${apiBase}/sample`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+  } catch (netErr) {
+    throw new Error(`Cannot connect to backend at "${apiBase}".`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Backend returned unexpected non-JSON response.');
+  }
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to load sample PDF');
+  }
+
+  return data;
+}
+
+/**
  * Send chat message and stream response tokens + source metadata via SSE.
  */
 export async function streamChatMessage({
   message,
   sessionId,
+  topK = 15,
+  topN = 5,
+  temperature = 0.1,
+  model = null,
   onSources,
   onToken,
   onDone,
@@ -100,6 +133,10 @@ export async function streamChatMessage({
         message,
         sessionId,
         stream: true,
+        topK,
+        topN,
+        temperature,
+        model,
       }),
       signal,
     });
@@ -182,3 +219,15 @@ export async function resetSession(sessionId) {
   });
   return res.json();
 }
+
+/**
+ * Remove only the active indexed document from session.
+ */
+export async function removeDocument(sessionId) {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/document/${sessionId}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+

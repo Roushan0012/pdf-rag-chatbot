@@ -4,7 +4,16 @@ import Header from './components/Header';
 import ChatWindow from './components/ChatWindow';
 import ChatInput from './components/ChatInput';
 import ConnectionModal from './components/ConnectionModal';
-import { uploadPDF, streamChatMessage, resetSession, checkBackendHealth } from './services/api';
+import PipelineVisualizer from './components/PipelineVisualizer';
+import ExportModal from './components/ExportModal';
+import {
+  uploadPDF,
+  loadSamplePDF,
+  streamChatMessage,
+  resetSession,
+  removeDocument,
+  checkBackendHealth
+} from './services/api';
 
 function generateSessionId() {
   return 'sess_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
@@ -25,16 +34,27 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('rag_selected_model') || 'openai/gpt-oss-120b';
+  });
+
+  const [ragParams, setRagParams] = useState(() => {
+    const saved = localStorage.getItem('rag_tuning_params');
+    return saved ? JSON.parse(saved) : { topK: 15, topN: 5, temperature: 0.1 };
+  });
+
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pipelineOpen, setPipelineOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [backendConnected, setBackendConnected] = useState(true);
 
   const abortControllerRef = useRef(null);
 
-  // Verify backend connectivity
+  // Check backend health on mount and periodically
   const verifyConnection = async () => {
     const res = await checkBackendHealth();
     setBackendConnected(res.ok);
@@ -42,7 +62,7 @@ export default function App() {
 
   useEffect(() => {
     verifyConnection();
-    const interval = setInterval(verifyConnection, 30000); // check health every 30s
+    const interval = setInterval(verifyConnection, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -63,7 +83,19 @@ export default function App() {
     localStorage.setItem('rag_chat_messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Handle PDF file upload
+  useEffect(() => {
+    localStorage.setItem('rag_selected_model', selectedModel);
+  }, [selectedModel]);
+
+  useEffect(() => {
+    localStorage.setItem('rag_tuning_params', JSON.stringify(ragParams));
+  }, [ragParams]);
+
+  const handleParamsChange = (newParams) => {
+    setRagParams((prev) => ({ ...prev, ...newParams }));
+  };
+
+  // Upload custom PDF file
   const handleFileUpload = async (file) => {
     setIsUploading(true);
     setUploadError(null);
@@ -79,12 +111,11 @@ export default function App() {
         childChunks: res.childChunks,
       });
 
-      // Add a system welcome notification message
       setMessages([
         {
           id: 'welcome_' + Date.now(),
           role: 'assistant',
-          content: `📄 **Successfully indexed "${res.filename}"!**\n\n- **Pages Ingested:** ${res.pageCount}\n- **Parent Chunks:** ${res.parentChunks} (high-context documents)\n- **Child Chunks:** ${res.childChunks} (FAISS dense & BM25 sparse vectors)\n\nYou can now ask any question about this document!`,
+          content: `📄 **Successfully indexed "${res.filename}"!**\n\n- **Pages Parsed:** ${res.pageCount}\n- **Parent Chunks:** ${res.parentChunks} (high-context documents ~1200 chars)\n- **Child Chunks:** ${res.childChunks} (FAISS dense & BM25 sparse indexed vectors)\n\nYou can now ask any question about this document!`,
           sources: [],
         },
       ]);
@@ -96,7 +127,61 @@ export default function App() {
     }
   };
 
-  // Handle sending a chat message
+  // Load built-in sample research paper
+  const handleLoadSample = async () => {
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const res = await loadSamplePDF(sessionId);
+      setBackendConnected(true);
+      setSessionId(res.sessionId);
+      setDocInfo({
+        filename: res.filename,
+        pageCount: res.pageCount,
+        parentChunks: res.parentChunks,
+        childChunks: res.childChunks,
+      });
+
+      setMessages([
+        {
+          id: 'sample_' + Date.now(),
+          role: 'assistant',
+          content: `✨ **Loaded Sample Document: "${res.filename}"**\n\n- **Architecture:** Parent-Child Chunking + Hybrid FAISS/BM25 Fusion + Cross-Encoder Reranking\n- **Parent Chunks:** ${res.parentChunks}\n- **Child Chunks:** ${res.childChunks}\n\nTry asking: *"What are the core components of this RAG pipeline?"* or click any of the prompt suggestions below!`,
+          sources: [],
+        },
+      ]);
+    } catch (err) {
+      console.error('Sample load failed:', err);
+      setUploadError(err.message || 'Failed to load sample document.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Remove active PDF document from memory
+  const handleRemovePDF = async () => {
+    if (!docInfo) return;
+    const removedName = docInfo.filename;
+    try {
+      await removeDocument(sessionId);
+    } catch (e) {
+      console.warn('Remove document API error:', e);
+    }
+    setDocInfo(null);
+    localStorage.removeItem('rag_doc_info');
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: 'removed_' + Date.now(),
+        role: 'assistant',
+        content: `🗑️ **"${removedName}" has been removed from active memory.**\n\nYou can now drag and drop a new PDF, or click **"Try Sample PDF"** to ingest another document.`,
+        sources: [],
+      },
+    ]);
+  };
+
+  // Send query and stream answer
   const handleSendMessage = async (text) => {
     if (!text.trim() || isStreaming) return;
 
@@ -119,6 +204,10 @@ export default function App() {
     await streamChatMessage({
       message: text,
       sessionId,
+      topK: ragParams.topK,
+      topN: ragParams.topN,
+      temperature: ragParams.temperature,
+      model: selectedModel,
       signal: abortControllerRef.current.signal,
       onSources: (sources) => {
         setMessages((prev) =>
@@ -165,7 +254,6 @@ export default function App() {
     });
   };
 
-  // Stop streaming response
   const handleStopStream = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -176,12 +264,10 @@ export default function App() {
     }
   };
 
-  // Clear chat conversation messages
   const handleClearChat = () => {
     setMessages([]);
   };
 
-  // Complete session reset
   const handleClearSession = async () => {
     if (window.confirm('Reset all indexed documents and conversation history?')) {
       try {
@@ -200,42 +286,59 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#080d1a] text-slate-100">
+    <div className="flex h-screen overflow-hidden bg-[#05070f] text-slate-100 font-sans bg-radial-mesh bg-tech-grid">
       {/* Left Sidebar */}
       <Sidebar
         docInfo={docInfo}
         onFileUpload={handleFileUpload}
         isUploading={isUploading}
+        onLoadSample={handleLoadSample}
+        onRemovePDF={handleRemovePDF}
         onClearSession={handleClearSession}
         uploadError={uploadError}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenPipeline={() => setPipelineOpen(true)}
+        ragParams={ragParams}
+        onParamsChange={handleParamsChange}
       />
 
       {/* Backdrop overlay for mobile sidebar */}
       {sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-30 bg-black/75 backdrop-blur-sm lg:hidden"
         />
       )}
 
       {/* Main Chat Interface */}
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
         <Header
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           activePdf={docInfo?.filename}
+          docInfo={docInfo}
           messageCount={messages.length}
           onClearChat={handleClearChat}
           backendConnected={backendConnected}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenPipeline={() => setPipelineOpen(true)}
+          onOpenExport={() => setExportOpen(true)}
+          onLoadSample={handleLoadSample}
+          onRemovePDF={handleRemovePDF}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+          isUploading={isUploading}
         />
 
         <ChatWindow
           messages={messages}
           activePdf={docInfo?.filename}
+          docInfo={docInfo}
           onSuggestionClick={handleSendMessage}
+          onLoadSample={handleLoadSample}
+          onOpenPipeline={() => setPipelineOpen(true)}
+          isUploading={isUploading}
         />
 
         <ChatInput
@@ -244,6 +347,7 @@ export default function App() {
           onStopStream={handleStopStream}
           disabled={!docInfo}
           activePdf={docInfo?.filename}
+          onLoadSample={handleLoadSample}
         />
       </div>
 
@@ -252,6 +356,22 @@ export default function App() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onConnectionChanged={verifyConnection}
+      />
+
+      {/* Pipeline Architecture Visualizer Modal */}
+      <PipelineVisualizer
+        isOpen={pipelineOpen}
+        onClose={() => setPipelineOpen(false)}
+        docInfo={docInfo}
+        ragParams={ragParams}
+      />
+
+      {/* Export Conversation Modal */}
+      <ExportModal
+        isOpen={exportOpen}
+        onClose={() => setExportOpen(false)}
+        messages={messages}
+        docInfo={docInfo}
       />
     </div>
   );

@@ -60,7 +60,7 @@
 
 ## 🚀 Overview
 
-The **Enterprise PDF RAG Intelligence Platform** is an end-to-end document question-answering system built around a multi-stage Retrieval-Augmented Generation (RAG) pipeline.
+The **PDF RAG Intelligence Platform** is an end-to-end document question-answering system built around a multi-stage Retrieval-Augmented Generation (RAG) pipeline.
 
 Users can upload a PDF and ask natural-language questions about its contents. Instead of sending the entire document directly to an LLM, the application builds searchable indexes and retrieves the most relevant passages before generation.
 

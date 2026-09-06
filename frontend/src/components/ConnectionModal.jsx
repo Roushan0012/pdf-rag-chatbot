@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Server, CheckCircle2, AlertCircle, Loader2, X, Globe, Zap, ExternalLink } from 'lucide-react';
-import { getApiBase, setApiBase, checkBackendHealth } from '../services/api';
+import {
+  Server,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  X,
+  Globe,
+  Zap,
+  ExternalLink,
+  Cpu,
+  ShieldCheck
+} from 'lucide-react';
+import { getApiBase, setApiBase } from '../services/api';
 
 export default function ConnectionModal({ isOpen, onClose, onConnectionChanged }) {
   const [urlInput, setUrlInput] = useState('');
@@ -21,13 +32,25 @@ export default function ConnectionModal({ isOpen, onClose, onConnectionChanged }
     try {
       const cleanUrl = targetUrl ? targetUrl.trim().replace(/\/+$/, '') : '';
       const testBase = cleanUrl
-        ? (cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`)
+        ? cleanUrl.endsWith('/api')
+          ? cleanUrl
+          : `${cleanUrl}/api`
         : getApiBase();
 
-      const res = await fetch(`${testBase}/health`).catch((err) => ({ ok: false, error: err.message }));
+      const startTime = performance.now();
+      const res = await fetch(`${testBase}/health`).catch((err) => ({
+        ok: false,
+        error: err.message
+      }));
+      const endTime = performance.now();
+
       if (res && res.ok) {
         const data = await res.json().catch(() => ({}));
-        setTestResult({ ok: true, data });
+        setTestResult({
+          ok: true,
+          latency: Math.round(endTime - startTime),
+          data
+        });
       } else {
         setTestResult({
           ok: false,
@@ -57,33 +80,33 @@ export default function ConnectionModal({ isOpen, onClose, onConnectionChanged }
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-lg rounded-3xl bg-[#0b1122] border border-slate-700/80 shadow-2xl p-6 space-y-5 text-slate-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+      <div className="relative w-full max-w-lg rounded-3xl bg-[#0b101f] border border-white/[0.1] shadow-2xl p-6 sm:p-7 space-y-5 text-slate-100">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-              <Server size={18} />
+        <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.08]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-cyan-400 shadow-inner">
+              <Server size={20} />
             </div>
             <div>
-              <h3 className="font-bold text-base text-slate-100">Backend API Connection</h3>
-              <p className="text-xs text-slate-400">Configure Python Flask Server URL</p>
+              <h3 className="font-heading font-bold text-base text-white">Backend Connection Settings</h3>
+              <p className="text-xs text-slate-400">Configure Python Flask & Groq Engine API</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.08] transition"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Form */}
-        <div className="space-y-3">
+        {/* Input Form */}
+        <div className="space-y-3.5">
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">
-              Backend Endpoint URL
+              API Base URL
             </label>
             <div className="relative flex items-center">
               <Globe size={16} className="absolute left-3.5 text-slate-500 pointer-events-none" />
@@ -91,45 +114,53 @@ export default function ConnectionModal({ isOpen, onClose, onConnectionChanged }
                 type="text"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="e.g. https://your-backend.onrender.com/api or /api"
-                className="w-full bg-slate-900/90 border border-slate-700 rounded-xl py-2.5 pl-10 pr-24 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                placeholder="e.g. http://127.0.0.1:5001/api or https://my-rag.onrender.com/api"
+                className="w-full bg-slate-950/80 border border-white/[0.1] rounded-xl py-2.5 pl-10 pr-24 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
               <button
                 type="button"
                 onClick={() => handleTest(urlInput)}
                 disabled={isTesting}
-                className="absolute right-1.5 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition flex items-center gap-1"
+                className="absolute right-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-xs font-medium text-cyan-300 border border-indigo-500/30 transition flex items-center gap-1"
               >
-                {isTesting ? <Loader2 size={12} className="animate-spin text-blue-400" /> : <Zap size={12} className="text-amber-400" />}
+                {isTesting ? (
+                  <Loader2 size={12} className="animate-spin text-cyan-400" />
+                ) : (
+                  <Zap size={12} className="text-amber-400" />
+                )}
                 Ping
               </button>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Leave blank to use default relative path (<code className="text-blue-400">/api</code>).
+            <p className="text-[11px] text-slate-400 mt-1.5">
+              Leave blank to use relative path (<code className="text-cyan-400 font-mono">/api</code>) via Vite proxy.
             </p>
           </div>
 
-          {/* Test Status Banner */}
+          {/* Test Status Card */}
           {testResult && (
             <div
-              className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+              className={`p-3.5 rounded-2xl border text-xs flex items-start gap-3 ${
                 testResult.ok
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                   : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
               }`}
             >
               {testResult.ok ? (
-                <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                <CheckCircle2 size={18} className="text-emerald-400 shrink-0 mt-0.5" />
               ) : (
-                <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
+                <AlertCircle size={18} className="text-rose-400 shrink-0 mt-0.5" />
               )}
-              <div>
-                <p className="font-semibold">
-                  {testResult.ok ? 'Backend Connected Successfully!' : 'Connection Failed'}
-                </p>
-                <p className="text-[11px] opacity-90 mt-0.5">
+              <div className="space-y-0.5">
+                <p className="font-semibold text-white">
                   {testResult.ok
-                    ? `Service: ${testResult.data?.service || 'Flask RAG API'} • Groq: ${testResult.data?.groq_configured ? 'Configured' : 'Missing Key'}`
+                    ? `Connected Successfully (${testResult.latency}ms latency)`
+                    : 'Connection Failed'}
+                </p>
+                <p className="text-[11.5px] opacity-90">
+                  {testResult.ok
+                    ? `Service: ${testResult.data?.service || 'Flask RAG API'} • Groq Key: ${
+                        testResult.data?.groq_configured ? 'Configured ✅' : 'Missing ⚠️'
+                      } • Default Model: ${testResult.data?.default_model || 'GPT-OSS-120B'}`
                     : testResult.error}
                 </p>
               </div>
@@ -137,17 +168,18 @@ export default function ConnectionModal({ isOpen, onClose, onConnectionChanged }
           )}
         </div>
 
-        {/* Instructions & Help */}
-        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1.5 text-slate-400">
-          <p className="font-semibold text-slate-300 flex items-center gap-1.5">
-            💡 Quick Deployment Guide:
+        {/* Deployment Helper */}
+        <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-white/[0.06] text-xs space-y-1.5 text-slate-400">
+          <p className="font-semibold text-slate-200 flex items-center gap-1.5">
+            <ShieldCheck size={14} className="text-indigo-400" />
+            Deployment & Production:
           </p>
-          <ul className="list-disc pl-4 space-y-1 text-[11.5px] leading-relaxed">
+          <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
             <li>
-              <strong>Running Locally:</strong> Start backend with <code className="text-blue-300">python backend/app.py</code> (runs on <code className="text-blue-300">http://127.0.0.1:5001</code>).
+              <strong>Local Full-Stack:</strong> Run <code className="text-indigo-300 font-mono">python run_dev.py</code> to launch both Flask (:5001) & React (:5173).
             </li>
             <li>
-              <strong>Deployed on Vercel:</strong> Host your Flask backend on <a href="https://render.com" target="_blank" rel="noreferrer" className="text-blue-400 underline inline-flex items-center gap-0.5">Render.com <ExternalLink size={10} /></a> (free), then paste your Render URL here!
+              <strong>Cloud Hosting:</strong> Host Flask on <a href="https://render.com" target="_blank" rel="noreferrer" className="text-cyan-400 underline inline-flex items-center gap-0.5">Render.com <ExternalLink size={10} /></a> and paste the deployed URL above.
             </li>
           </ul>
         </div>
@@ -159,21 +191,21 @@ export default function ConnectionModal({ isOpen, onClose, onConnectionChanged }
             onClick={handleResetToDefault}
             className="text-xs text-slate-400 hover:text-slate-200 underline"
           >
-            Reset to Default
+            Reset Default
           </button>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition"
+              className="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-slate-300 transition"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleSave}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-lg shadow-blue-600/20 transition"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 transition"
             >
               Save & Apply
             </button>

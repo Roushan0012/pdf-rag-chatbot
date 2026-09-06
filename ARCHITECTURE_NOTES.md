@@ -1,4 +1,4 @@
-# 🧠 Enterprise PDF RAG System — Technical Notes & Architecture Manual
+# 🧠 PDF RAG System — Technical Notes & Architecture Manual
 
 Comprehensive architectural and engineering notes for the decoupled, production-grade **PDF RAG (Retrieval-Augmented Generation)** platform.
 

@@ -14,7 +14,7 @@ for p in [str(backend_dir), str(root_dir)]:
         sys.path.insert(0, p)
 
 from typing import Dict, Any, Optional
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -47,11 +47,10 @@ logging.basicConfig(
 logger = logging.getLogger("rag_api")
 
 app = Flask(__name__)
-# Enable CORS for frontend clients
+# Enable CORS for all frontend clients
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # In-memory session store: session_id -> session data
-# In production, this can be backed by Redis or persistent cache
 sessions: Dict[str, Dict[str, Any]] = {}
 
 
@@ -73,14 +72,63 @@ def get_or_create_session(session_id: Optional[str] = None) -> Dict[str, Any]:
     return sessions[session_id]
 
 
+def process_and_index_document(file_path: str, filename: str, session: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ingest PDF, execute Parent-Child splitting, build FAISS & BM25 indexes.
+    """
+    docs = load_pdf(file_path)
+    for doc in docs:
+        doc.metadata["source_file"] = filename
+
+    page_count = len(docs)
+    logger.info(f"Loaded {page_count} pages from {filename}")
+
+    # 1. Parent-Child splitting (High-context Parent, Searchable Child)
+    child_chunks, parent_map = split_documents(
+        docs,
+        parent_chunk_size=1200,
+        parent_chunk_overlap=150,
+        child_chunk_size=300,
+        child_chunk_overlap=50
+    )
+    logger.info(f"Generated {len(parent_map)} parent chunks and {len(child_chunks)} child chunks")
+
+    # 2. Dense FAISS Vector Indexing
+    embeddings = get_embeddings()
+    vector_store = create_vector_store(child_chunks, embeddings)
+
+    # 3. Hybrid Retriever (FAISS Dense + BM25 Sparse with Reciprocal Rank Fusion)
+    hybrid_retriever = HybridRetriever(child_chunks, vector_store)
+
+    # 4. Save to session
+    session["filename"] = filename
+    session["page_count"] = page_count
+    session["parent_chunks_count"] = len(parent_map)
+    session["child_chunks_count"] = len(child_chunks)
+    session["hybrid_retriever"] = hybrid_retriever
+    session["parent_map"] = parent_map
+    session["messages"] = []  # reset history for new doc
+
+    return {
+        "success": True,
+        "sessionId": session["session_id"],
+        "filename": filename,
+        "pageCount": page_count,
+        "parentChunks": len(parent_map),
+        "childChunks": len(child_chunks),
+        "message": f"Successfully indexed '{filename}' with {len(parent_map)} parent & {len(child_chunks)} child chunks."
+    }
+
+
 @app.route("/api/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""
     groq_configured = bool(os.getenv("GROQ_API_KEY"))
     return jsonify({
         "status": "healthy",
-        "service": "PDF RAG Chatbot Flask API",
+        "service": "Enterprise PDF RAG Chatbot API",
         "groq_configured": groq_configured,
+        "default_model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
         "active_sessions": len(sessions)
     }), 200
 
@@ -88,96 +136,77 @@ def health_check():
 @app.route("/api/upload", methods=["POST"])
 def upload_pdf():
     """
-    Endpoint for PDF ingestion, parent-child chunking, and hybrid indexing.
-    Accepts: multipart/form-data with 'file' and optional 'sessionId'.
+    Endpoint for PDF upload, parent-child chunking, and hybrid indexing.
     """
     try:
         if "file" not in request.files:
-            return jsonify({"error": "No file part in the request"}), 400
+            return jsonify({"error": "No file part in request"}), 400
         
         file = request.files["file"]
         if file.filename == "":
-            return jsonify({"error": "No selected file"}), 400
+            return jsonify({"error": "No file selected"}), 400
         
         if not file.filename.lower().endswith(".pdf"):
             return jsonify({"error": "Only PDF files are supported"}), 400
         
         session_id = request.form.get("sessionId")
         session = get_or_create_session(session_id)
-        current_session_id = session["session_id"]
         
-        logger.info(f"Processing PDF '{file.filename}' for session {current_session_id}")
+        logger.info(f"Processing PDF '{file.filename}' for session {session['session_id']}")
         
-        # Save temporary file safely
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             file.save(tmp.name)
             tmp_path = tmp.name
             
         try:
-            # 1. Load document pages with page numbering metadata
-            docs = load_pdf(tmp_path)
-            # Retain original uploaded filename in metadata
-            for doc in docs:
-                doc.metadata["source_file"] = file.filename
-                
-            page_count = len(docs)
-            logger.info(f"Loaded {page_count} pages from {file.filename}")
-            
-            # 2. Parent-Child splitting
-            child_chunks, parent_map = split_documents(
-                docs,
-                parent_chunk_size=1200,
-                parent_chunk_overlap=150,
-                child_chunk_size=300,
-                child_chunk_overlap=50
-            )
-            logger.info(f"Generated {len(parent_map)} parent chunks and {len(child_chunks)} child chunks")
-            
-            # 3. Dense FAISS indexing
-            embeddings = get_embeddings()
-            vector_store = create_vector_store(child_chunks, embeddings)
-            
-            # 4. Hybrid Retriever (FAISS Dense + BM25 Sparse)
-            hybrid_retriever = HybridRetriever(child_chunks, vector_store)
-            
-            # Update session
-            session["filename"] = file.filename
-            session["page_count"] = page_count
-            session["parent_chunks_count"] = len(parent_map)
-            session["child_chunks_count"] = len(child_chunks)
-            session["hybrid_retriever"] = hybrid_retriever
-            session["parent_map"] = parent_map
-            session["messages"] = []  # reset history for new doc
-            
-            return jsonify({
-                "success": True,
-                "sessionId": current_session_id,
-                "filename": file.filename,
-                "pageCount": page_count,
-                "parentChunks": len(parent_map),
-                "childChunks": len(child_chunks),
-                "message": f"Successfully indexed '{file.filename}'"
-            }), 200
-            
+            result = process_and_index_document(tmp_path, file.filename, session)
+            return jsonify(result), 200
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
     except Exception as e:
-        logger.exception("Error during PDF processing")
+        logger.exception("Error during PDF upload processing")
         return jsonify({"error": f"Failed to process PDF: {str(e)}"}), 500
+
+
+@app.route("/api/sample", methods=["POST"])
+def load_sample_document():
+    """
+    Endpoint to load bundled sample PDF for instant testing.
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        session_id = data.get("sessionId")
+        session = get_or_create_session(session_id)
+
+        sample_paths = [
+            root_dir / "sample_rag_paper.pdf",
+            backend_dir / "sample_rag_paper.pdf",
+            Path("sample_rag_paper.pdf")
+        ]
+        
+        found_path = None
+        for p in sample_paths:
+            if p.exists():
+                found_path = str(p)
+                break
+
+        if not found_path:
+            return jsonify({"error": "Sample PDF file not found on server"}), 404
+
+        result = process_and_index_document(found_path, "sample_rag_paper.pdf", session)
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.exception("Error loading sample document")
+        return jsonify({"error": f"Failed to load sample PDF: {str(e)}"}), 500
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """
-    RAG Chat endpoint. Supports streaming (Server-Sent Events) and non-streaming modes.
-    Accepts JSON:
-    {
-        "message": "User query",
-        "sessionId": "UUID",
-        "stream": true/false (default true)
-    }
+    RAG Chat endpoint. Supports streaming SSE and standard JSON response.
     """
     try:
         data = request.get_json(force=True, silent=True)
@@ -187,6 +216,10 @@ def chat():
         query = data.get("message", "").strip()
         session_id = data.get("sessionId")
         stream_enabled = data.get("stream", True)
+        top_k = int(data.get("topK", 15))
+        top_n = int(data.get("topN", 5))
+        temperature = float(data.get("temperature", 0.1))
+        model_name = data.get("model")
         
         if not query:
             return jsonify({"error": "Message query is required"}), 400
@@ -201,20 +234,20 @@ def chat():
         if not hybrid_retriever:
             return jsonify({"error": "No document is currently indexed for this session."}), 400
         
-        logger.info(f"Session {session_id} - Query: {query}")
+        logger.info(f"Session {session_id} - Query: '{query}' (top_k={top_k}, top_n={top_n})")
         
-        # Step 1: Hybrid Retrieval (Dense FAISS + Sparse BM25 -> Top 15)
-        candidate_chunks = hybrid_retriever.search(query, top_k=15)
+        # Step 1: Hybrid Retrieval (FAISS Dense + BM25 Sparse -> Top K)
+        candidate_chunks = hybrid_retriever.search(query, top_k=top_k)
         logger.info(f"Retrieved {len(candidate_chunks)} candidates from hybrid search")
         
-        # Step 2: Cross-Encoder Reranking (Top 15 -> Top 5)
-        reranked_chunks = rerank_documents(query, candidate_chunks, top_n=5)
+        # Step 2: Cross-Encoder Reranking (Top K -> Top N)
+        reranked_chunks = rerank_documents(query, candidate_chunks, top_n=top_n)
         logger.info(f"Reranked to top {len(reranked_chunks)} chunks")
         
         # Step 3: Resolve Parent Context
         formatted_context = format_context_from_parents(reranked_chunks, parent_map)
         
-        # Prepare serializable sources metadata for the UI
+        # Step 4: Prepare serializable sources payload
         sources_payload = []
         for i, chunk in enumerate(reranked_chunks):
             p_id = chunk.metadata.get("parent_id", "")
@@ -233,33 +266,31 @@ def chat():
                 "rrfScore": chunk.metadata.get("rrf_score", 0.0)
             })
             
-        # Build prompt messages
         messages = build_rag_prompt(
             query=query,
             context=formatted_context,
             conversation_history=session.get("messages", [])
         )
         
-        llm = get_llm(streaming=stream_enabled)
+        llm = get_llm(model=model_name, temperature=temperature, streaming=stream_enabled)
         
-        # Record user query in history
         session.setdefault("messages", []).append({"role": "user", "content": query})
         
         if stream_enabled:
             def generate_stream():
                 full_bot_response = []
                 try:
-                    # First event: Send retrieved sources metadata
+                    # 1. Yield sources event
                     yield f"event: sources\ndata: {json.dumps(sources_payload)}\n\n"
                     
-                    # Stream tokens from Groq
+                    # 2. Yield token events
                     for chunk in llm.stream(messages):
                         token = chunk.content
                         if token:
                             full_bot_response.append(token)
                             yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
                     
-                    # Complete response
+                    # 3. Complete event
                     complete_text = "".join(full_bot_response)
                     session["messages"].append({"role": "assistant", "content": complete_text})
                     yield f"event: done\ndata: {json.dumps({'done': True, 'totalLength': len(complete_text)})}\n\n"
@@ -273,11 +304,11 @@ def chat():
                 mimetype="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no"
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive"
                 }
             )
         else:
-            # Non-streaming response
             response = llm.invoke(messages)
             answer = response.content
             session["messages"].append({"role": "assistant", "content": answer})
@@ -295,7 +326,7 @@ def chat():
 
 @app.route("/api/session/<session_id>", methods=["GET"])
 def get_session_info(session_id: str):
-    """Retrieve metadata about the current session."""
+    """Retrieve session metadata."""
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
     
@@ -313,13 +344,51 @@ def get_session_info(session_id: str):
 
 @app.route("/api/session/<session_id>", methods=["DELETE"])
 def clear_session(session_id: str):
-    """Clear and reset session memory."""
+    """Reset session memory completely."""
     if session_id in sessions:
         del sessions[session_id]
     return jsonify({"success": True, "message": "Session reset successfully"}), 200
 
 
+@app.route("/api/document/<session_id>", methods=["DELETE"])
+def remove_document(session_id: str):
+    """Remove active indexed PDF document from session."""
+    if session_id in sessions:
+        sessions[session_id]["filename"] = None
+        sessions[session_id]["page_count"] = 0
+        sessions[session_id]["parent_chunks_count"] = 0
+        sessions[session_id]["child_chunks_count"] = 0
+        sessions[session_id]["hybrid_retriever"] = None
+        sessions[session_id]["parent_map"] = {}
+    return jsonify({"success": True, "message": "Document removed successfully"}), 200
+
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    dist_dir = root_dir / "frontend" / "dist"
+    if dist_dir.exists():
+        file_path = dist_dir / path
+        if path != "" and file_path.exists():
+            return send_from_directory(str(dist_dir), path)
+        return send_from_directory(str(dist_dir), "index.html")
+    
+    return jsonify({
+        "status": "online",
+        "service": "Enterprise PDF RAG Chatbot API",
+        "message": "Frontend is running via Vite on http://localhost:5173",
+        "endpoints": {
+            "health": "/api/health",
+            "sample_pdf": "/api/sample (POST)",
+            "upload_pdf": "/api/upload (POST)",
+            "chat_stream": "/api/chat (POST)"
+        }
+    }), 200
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
-    logger.info(f"Starting Flask RAG server on http://127.0.0.1:{port}")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
+    logger.info(f"Starting Enterprise RAG server on http://127.0.0.1:{port} (debug={debug_mode})")
+    # use_reloader is set to False to avoid infinite fsevents restart loops on MacOS venv file access
+    app.run(host="0.0.0.0", port=port, debug=debug_mode, use_reloader=False)

@@ -28,6 +28,8 @@ vectorstore/
 temp/
 *.pdf
 !data/*.pdf
+!sample_rag_paper.pdf
+!backend/sample_rag_paper.pdf
 
 # OS & IDE
 .DS_Store
