@@ -78,14 +78,14 @@ export async function uploadPDF(file, sessionId = null) {
     });
   } catch (netErr) {
     throw new Error(
-      `Cannot connect to backend at "${apiBase}". If you are using Vercel, please provide your deployed Backend URL in Connection Settings.`
+      `Unable to reach backend (${netErr.message || 'Network request failed'}). If the server was sleeping, it may take 20s to wake up. Please try again.`
     );
   }
 
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
     throw new Error(
-      `Backend API not found at "${apiBase}" (received HTML instead of API response). Please ensure your Python Flask backend is running and connected.`
+      `Server returned unexpected response (status ${response.status}). The backend may be busy or waking up. Please retry in a few seconds.`
     );
   }
 
@@ -110,12 +110,12 @@ export async function loadSamplePDF(sessionId = null) {
       body: JSON.stringify({ sessionId }),
     });
   } catch (netErr) {
-    throw new Error(`Cannot connect to backend at "${apiBase}".`);
+    throw new Error(`Unable to reach backend: ${netErr.message}`);
   }
 
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    throw new Error('Backend returned unexpected non-JSON response.');
+    throw new Error(`Server returned non-JSON response (${response.status}).`);
   }
 
   const data = await response.json();

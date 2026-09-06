@@ -13,6 +13,7 @@ for p in [str(backend_dir), str(root_dir)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import gc
 from typing import Dict, Any, Optional
 from flask import Flask, request, jsonify, Response, stream_with_context, send_from_directory
 from flask_cors import CORS
@@ -28,7 +29,7 @@ try:
     from backend.src.embeddings import get_embeddings
     from backend.src.vector_db import create_vector_store
     from backend.src.hybrid_search import HybridRetriever
-    from backend.src.reranker import rerank_documents
+    from backend.src.reranker import rerank_documents, get_cross_encoder
     from backend.src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt
 except ImportError:
     from src.loader import load_pdf  # type: ignore
@@ -36,7 +37,7 @@ except ImportError:
     from src.embeddings import get_embeddings  # type: ignore
     from src.vector_db import create_vector_store  # type: ignore
     from src.hybrid_search import HybridRetriever  # type: ignore
-    from src.reranker import rerank_documents  # type: ignore
+    from src.reranker import rerank_documents, get_cross_encoder  # type: ignore
     from src.rag_chain import get_llm, format_context_from_parents, build_rag_prompt  # type: ignore
 
 # Configure logging
@@ -49,6 +50,16 @@ logger = logging.getLogger("rag_api")
 app = Flask(__name__)
 # Enable CORS for all frontend clients
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# Pre-warm models so first upload/query is instantaneous
+try:
+    logger.info("Pre-warming Embedding and Cross-Encoder models in memory...")
+    get_embeddings()
+    get_cross_encoder()
+    gc.collect()
+    logger.info("Models pre-warmed successfully!")
+except Exception as _e:
+    logger.warning(f"Model warm-up note: {_e}")
 
 # In-memory session store: session_id -> session data
 sessions: Dict[str, Dict[str, Any]] = {}
@@ -108,6 +119,8 @@ def process_and_index_document(file_path: str, filename: str, session: Dict[str,
     session["hybrid_retriever"] = hybrid_retriever
     session["parent_map"] = parent_map
     session["messages"] = []  # reset history for new doc
+
+    gc.collect()
 
     return {
         "success": True,

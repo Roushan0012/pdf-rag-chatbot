@@ -3,22 +3,22 @@ from typing import List, Optional
 from sentence_transformers import CrossEncoder
 from langchain_core.documents import Document
 
+try:
+    import torch
+    torch.set_num_threads(1)
+except Exception:
+    pass
+
 _cached_cross_encoder: Optional[CrossEncoder] = None
 
 
 def get_cross_encoder(model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2") -> CrossEncoder:
     """
     Get or initialize CrossEncoder model instance with singleton caching.
-    
-    Args:
-        model_name (str): HuggingFace CrossEncoder model name.
-        
-    Returns:
-        CrossEncoder: Initialized CrossEncoder model.
     """
     global _cached_cross_encoder
     if _cached_cross_encoder is None:
-        _cached_cross_encoder = CrossEncoder(model_name)
+        _cached_cross_encoder = CrossEncoder(model_name, max_length=256, device="cpu")
     return _cached_cross_encoder
 
 
@@ -30,15 +30,6 @@ def rerank_documents(
 ) -> List[Document]:
     """
     Reranks candidate documents against the query using a Cross-Encoder model.
-    
-    Args:
-        query (str): The search query or question.
-        documents (List[Document]): Candidate retrieved chunks (e.g. top 15 from hybrid search).
-        top_n (int): Number of top ranked documents to return (default: 5).
-        model_name (str): Model identifier for CrossEncoder.
-        
-    Returns:
-        List[Document]: Top N reranked documents with rerank_score and relevance percentage.
     """
     if not documents:
         return []
@@ -48,9 +39,9 @@ def rerank_documents(
     
     model = get_cross_encoder(model_name)
     
-    # Prepare query-passage pairs
+    # Prepare query-passage pairs and predict in small batch
     pairs = [[query, doc.page_content] for doc in documents]
-    scores = model.predict(pairs)
+    scores = model.predict(pairs, batch_size=8, show_progress_bar=False)
     
     scored_docs: List[Document] = []
     for doc, score in zip(documents, scores):
@@ -59,7 +50,6 @@ def rerank_documents(
         new_meta["rerank_score"] = round(raw_score, 4)
         
         # Calculate sigmoid normalized relevance percentage (0-100%)
-        # Sigmoid: 1 / (1 + exp(-x))
         try:
             norm_prob = 1.0 / (1.0 + math.exp(-raw_score))
             new_meta["relevance_percentage"] = round(norm_prob * 100, 1)
