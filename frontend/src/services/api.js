@@ -47,7 +47,14 @@ export function setApiBase(url) {
 export async function checkBackendHealth() {
   const apiBase = getApiBase();
   try {
-    const res = await fetch(`${apiBase}/health`, { method: 'GET' });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(`${apiBase}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       return { ok: false, error: 'Server returned non-JSON response (HTML fallback).' };
