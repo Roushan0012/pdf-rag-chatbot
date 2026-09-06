@@ -64,6 +64,28 @@ except Exception as _e:
 # In-memory session store: session_id -> session data
 sessions: Dict[str, Dict[str, Any]] = {}
 
+# Background keep-alive daemon thread to prevent Render container from sleeping
+import threading
+import time
+import urllib.request
+
+def _keep_alive_worker():
+    """Periodically ping public health endpoint every 9.5 minutes to prevent idle sleep."""
+    time.sleep(90)
+    while True:
+        try:
+            render_url = os.environ.get("RENDER_EXTERNAL_URL") or "https://pdf-rag-chatbot-3-yw6u.onrender.com"
+            if render_url:
+                target = f"{render_url.rstrip('/')}/api/health"
+                req = urllib.request.Request(target, headers={"User-Agent": "NexusRAGKeepAlive/1.0"})
+                with urllib.request.urlopen(req, timeout=20) as res:
+                    logger.info(f"Keep-alive self-ping to {target} returned status {res.status}")
+        except Exception as _ping_err:
+            logger.debug(f"Keep-alive ping note: {_ping_err}")
+        time.sleep(570)  # every 9.5 minutes (Render sleep timeout is 15 minutes)
+
+threading.Thread(target=_keep_alive_worker, daemon=True).start()
+
 
 def get_or_create_session(session_id: Optional[str] = None) -> Dict[str, Any]:
     """Retrieve existing session or instantiate a new one."""

@@ -1,4 +1,5 @@
-const DEFAULT_PRODUCTION_BACKEND = 'https://pdf-rag-backend-cvxe.onrender.com/api';
+const PRIMARY_PRODUCTION_BACKEND = 'https://pdf-rag-chatbot-3-yw6u.onrender.com/api';
+const FALLBACK_PRODUCTION_BACKEND = 'https://pdf-rag-backend-cvxe.onrender.com/api';
 
 /**
  * Get active API Base URL from localStorage, env var, or live production default.
@@ -29,12 +30,17 @@ export function getApiBase() {
     return '/api';
   }
 
-  // Production default: connects seamlessly to your live Render backend for all visitors
-  return DEFAULT_PRODUCTION_BACKEND;
+  // Production default: connects seamlessly to your latest live Render backend for all visitors
+  return PRIMARY_PRODUCTION_BACKEND;
 }
 
 export function setApiBase(url) {
-  if (!url || !url.trim() || url.trim() === DEFAULT_PRODUCTION_BACKEND) {
+  if (
+    !url ||
+    !url.trim() ||
+    url.trim() === PRIMARY_PRODUCTION_BACKEND ||
+    url.trim() === FALLBACK_PRODUCTION_BACKEND
+  ) {
     localStorage.removeItem('custom_backend_url');
   } else {
     localStorage.setItem('custom_backend_url', url.trim());
@@ -42,13 +48,13 @@ export function setApiBase(url) {
 }
 
 /**
- * Check backend health status.
+ * Check backend health status with timeout and fallback support.
  */
 export async function checkBackendHealth() {
   const apiBase = getApiBase();
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
+    const timer = setTimeout(() => controller.abort(), 12000);
     const res = await fetch(`${apiBase}/health`, {
       method: 'GET',
       signal: controller.signal,
@@ -62,14 +68,27 @@ export async function checkBackendHealth() {
     const data = await res.json();
     return { ok: res.ok, data };
   } catch (err) {
+    // If primary backend failed, test fallback
+    if (apiBase === PRIMARY_PRODUCTION_BACKEND) {
+      try {
+        const fbRes = await fetch(`${FALLBACK_PRODUCTION_BACKEND}/health`, { method: 'GET' });
+        if (fbRes.ok) {
+          const fbData = await fbRes.json();
+          return { ok: true, data: fbData };
+        }
+      } catch (fbErr) {
+        // pass
+      }
+    }
     return { ok: false, error: err.message || 'Cannot reach backend server.' };
   }
 }
 
 /**
  * Upload PDF to backend for parent-child chunking and hybrid indexing.
+ * Automatically retries if server was sleeping on cold-start.
  */
-export async function uploadPDF(file, sessionId = null) {
+export async function uploadPDF(file, sessionId = null, retryCount = 0) {
   const apiBase = getApiBase();
   const formData = new FormData();
   formData.append('file', file);
@@ -84,15 +103,24 @@ export async function uploadPDF(file, sessionId = null) {
       body: formData,
     });
   } catch (netErr) {
+    // If server was sleeping or cold-starting, auto-retry once after 3.5s
+    if (retryCount < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      return uploadPDF(file, sessionId, retryCount + 1);
+    }
     throw new Error(
-      `Unable to reach backend (${netErr.message || 'Network request failed'}). If the server was sleeping, it may take 20s to wake up. Please try again.`
+      `Unable to reach backend (${netErr.message || 'Network error'}). The server is warming up. Please try uploading once more.`
     );
   }
 
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
+    if (retryCount < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      return uploadPDF(file, sessionId, retryCount + 1);
+    }
     throw new Error(
-      `Server returned unexpected response (status ${response.status}). The backend may be busy or waking up. Please retry in a few seconds.`
+      `Server returned unexpected response (${response.status}). The engine is waking up. Please retry in a moment.`
     );
   }
 

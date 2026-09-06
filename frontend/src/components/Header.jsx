@@ -62,16 +62,22 @@ export default function Header({
                 className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-medium transition border ${
                   backendConnected
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                    : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20 animate-pulse'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20 animate-pulse'
                 }`}
-                title="Click to configure backend connection"
+                title={
+                  backendConnected
+                    ? 'Backend connected and ready'
+                    : 'Backend is waking up from idle sleep, please wait a moment...'
+                }
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
-                    backendConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'
+                    backendConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-ping'
                   }`}
                 />
-                <span className="hidden sm:inline">{backendConnected ? 'Engine Ready' : 'Disconnected'}</span>
+                <span className="hidden sm:inline">
+                  {backendConnected ? 'Engine Ready' : 'Waking Up...'}
+                </span>
               </button>
             </div>
           </div>
