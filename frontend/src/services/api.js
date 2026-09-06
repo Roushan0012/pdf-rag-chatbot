@@ -1,5 +1,7 @@
+const DEFAULT_PRODUCTION_BACKEND = 'https://pdf-rag-backend-cvxe.onrender.com/api';
+
 /**
- * Get active API Base URL from localStorage, env var, or local proxy.
+ * Get active API Base URL from localStorage, env var, or live production default.
  */
 export function getApiBase() {
   const customUrl = localStorage.getItem('custom_backend_url');
@@ -10,11 +12,29 @@ export function getApiBase() {
     }
     return clean;
   }
-  return import.meta.env.VITE_API_URL || '/api';
+
+  if (import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL.trim()) {
+    let clean = import.meta.env.VITE_API_URL.trim().replace(/\/+$/, '');
+    if (!clean.endsWith('/api') && !clean.includes('/api/')) {
+      clean = `${clean}/api`;
+    }
+    return clean;
+  }
+
+  // Local development fallback
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return '/api';
+  }
+
+  // Production default: connects seamlessly to your live Render backend for all visitors
+  return DEFAULT_PRODUCTION_BACKEND;
 }
 
 export function setApiBase(url) {
-  if (!url || !url.trim()) {
+  if (!url || !url.trim() || url.trim() === DEFAULT_PRODUCTION_BACKEND) {
     localStorage.removeItem('custom_backend_url');
   } else {
     localStorage.setItem('custom_backend_url', url.trim());

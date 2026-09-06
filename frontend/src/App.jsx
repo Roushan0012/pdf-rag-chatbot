@@ -54,16 +54,31 @@ export default function App() {
 
   const abortControllerRef = useRef(null);
 
-  // Check backend health on mount and periodically
+  // Check backend health on mount and periodically with auto-wake retry
   const verifyConnection = async () => {
     const res = await checkBackendHealth();
     setBackendConnected(res.ok);
+    return res.ok;
   };
 
   useEffect(() => {
-    verifyConnection();
+    let attempts = 0;
+    let fastTimer = null;
+
+    const initialCheck = async () => {
+      const ok = await verifyConnection();
+      if (!ok && attempts < 10) {
+        attempts += 1;
+        fastTimer = setTimeout(initialCheck, 3500);
+      }
+    };
+
+    initialCheck();
     const interval = setInterval(verifyConnection, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (fastTimer) clearTimeout(fastTimer);
+    };
   }, []);
 
   // Sync state to local storage
