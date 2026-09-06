@@ -1,0 +1,12 @@
+# Ignore Python backend and serverless files during Vercel frontend build
+backend/
+venv/
+.venv/
+pyproject.toml
+requirements.txt
+app.py
+run_dev.py
+Dockerfile
+render.yaml
+sample_rag_paper.pdf
+vectorstore/
